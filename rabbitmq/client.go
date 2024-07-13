@@ -39,6 +39,7 @@ func NewClient(url string) (*Client, error) {
 	}, nil
 }
 
+// PushMessage pushes a message to the queue for the given user ID.
 func (c *Client) PushMessage(userId int64, msg string) error {
 	if err := c.pushChannel.Publish("", c.queueName, false, false, amqp091.Publishing{
 		ContentType: "text/plain",
@@ -72,6 +73,8 @@ func (m *Message) Reject() error {
 	return nil
 }
 
+// ConsumeMessages consumes messages from the queue and returns a channel for the client to consume.
+// The context is expected to expire when the client is done consuming messages so the channel can be closed.
 func (c *Client) ConsumeMessages(ctx context.Context) (<-chan Message, error) {
 	channel, err := c.conn.Channel()
 	if err != nil {
@@ -92,7 +95,11 @@ func (c *Client) ConsumeMessages(ctx context.Context) (<-chan Message, error) {
 			select {
 			case <-ctx.Done():
 				return
-			case d := <-deliveries:
+			case d, ok := <-deliveries:
+				if !ok {
+					return
+				}
+
 				userId, message := int64(0), ""
 
 				body := string(d.Body)
@@ -108,10 +115,21 @@ func (c *Client) ConsumeMessages(ctx context.Context) (<-chan Message, error) {
 					slog.Error("error parsing message, returning empty")
 				}
 
-				msgs <- Message{
+				msg := Message{
 					delivery: d,
 					UserId:   userId,
 					Msg:      message,
+				}
+
+				select {
+				case <-ctx.Done():
+					err := d.Reject(true)
+					if err != nil {
+						slog.Error("failed to reject message before exit", slog.Any("err", err))
+					}
+					return
+				case msgs <- msg:
+					// do nothing
 				}
 			}
 		}
