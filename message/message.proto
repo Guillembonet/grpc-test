@@ -5,12 +5,13 @@ option go_package = "gihub.com/guillembonet/grpc-test/message";
 
 service Messenger {
   rpc ProcessMessage(Message) returns (MessageResponse);
-  rpc GetProcessedMessages(User) returns (stream ProcessedMessage);
+  rpc GetProcessedMessages(GetProcessedMessagesParams)
+      returns (stream ProcessedMessage);
 }
 
 message Message {
-  int64 user_id = 1;
-  string message = 2;
+  string message = 1;
+  string note = 2;
 }
 
 message MessageResponse { Status status = 1; }
@@ -21,9 +22,9 @@ enum Status {
 }
 
 message ProcessedMessage {
-  int64 user_id = 1;
-  string message = 2;
+  string message = 1;
+  string note = 2;
   string base64_message = 3;
 }
 
-message User { int64 user_id = 1; }
+message GetProcessedMessagesParams {}

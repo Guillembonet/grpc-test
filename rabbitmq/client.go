@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
-	"strings"
 
+	"gihub.com/guillembonet/grpc-test/message"
 	"github.com/rabbitmq/amqp091-go"
+	"google.golang.org/protobuf/proto"
 )
 
 type Client struct {
@@ -39,11 +39,16 @@ func NewClient(url string) (*Client, error) {
 	}, nil
 }
 
-// PushMessage pushes a message to the queue for the given user ID.
-func (c *Client) PushMessage(userId int64, msg string) error {
+// PushMessage pushes a message to the queue.
+func (c *Client) PushMessage(msg *message.Message) error {
+	body, err := proto.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal message: %w", err)
+	}
+
 	if err := c.pushChannel.Publish("", c.queueName, false, false, amqp091.Publishing{
-		ContentType: "text/plain",
-		Body:        []byte(fmt.Sprintf("%d:%s", userId, msg)),
+		ContentType: "application/protobuf",
+		Body:        body,
 	}); err != nil {
 		return fmt.Errorf("error publishing message: %w", err)
 	}
@@ -52,8 +57,7 @@ func (c *Client) PushMessage(userId int64, msg string) error {
 }
 
 type Message struct {
-	UserId   int64
-	Msg      string
+	Message  *message.Message
 	delivery amqp091.Delivery
 }
 
@@ -100,25 +104,16 @@ func (c *Client) ConsumeMessages(ctx context.Context) (<-chan Message, error) {
 					return
 				}
 
-				userId, message := int64(0), ""
-
-				body := string(d.Body)
-				bodySplit := strings.Split(body, ":")
-				if len(bodySplit) == 2 {
-					message = bodySplit[1]
-					var err error
-					userId, err = strconv.ParseInt(bodySplit[0], 10, 64)
-					if err != nil {
-						slog.Error("error parsing user ID, returning empty", slog.Any("err", err))
-					}
-				} else {
-					slog.Error("error parsing message, returning empty")
+				pbMsg := &message.Message{}
+				err := proto.Unmarshal(d.Body, pbMsg)
+				if err != nil {
+					slog.Error("error unmarshaling message", slog.Any("err", err))
+					pbMsg = nil
 				}
 
 				msg := Message{
 					delivery: d,
-					UserId:   userId,
-					Msg:      message,
+					Message:  pbMsg,
 				}
 
 				select {

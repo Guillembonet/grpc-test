@@ -28,7 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MessengerClient interface {
 	ProcessMessage(ctx context.Context, in *Message, opts ...grpc.CallOption) (*MessageResponse, error)
-	GetProcessedMessages(ctx context.Context, in *User, opts ...grpc.CallOption) (Messenger_GetProcessedMessagesClient, error)
+	GetProcessedMessages(ctx context.Context, in *GetProcessedMessagesParams, opts ...grpc.CallOption) (Messenger_GetProcessedMessagesClient, error)
 }
 
 type messengerClient struct {
@@ -49,7 +49,7 @@ func (c *messengerClient) ProcessMessage(ctx context.Context, in *Message, opts 
 	return out, nil
 }
 
-func (c *messengerClient) GetProcessedMessages(ctx context.Context, in *User, opts ...grpc.CallOption) (Messenger_GetProcessedMessagesClient, error) {
+func (c *messengerClient) GetProcessedMessages(ctx context.Context, in *GetProcessedMessagesParams, opts ...grpc.CallOption) (Messenger_GetProcessedMessagesClient, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &Messenger_ServiceDesc.Streams[0], Messenger_GetProcessedMessages_FullMethodName, cOpts...)
 	if err != nil {
@@ -87,7 +87,7 @@ func (x *messengerGetProcessedMessagesClient) Recv() (*ProcessedMessage, error) 
 // for forward compatibility
 type MessengerServer interface {
 	ProcessMessage(context.Context, *Message) (*MessageResponse, error)
-	GetProcessedMessages(*User, Messenger_GetProcessedMessagesServer) error
+	GetProcessedMessages(*GetProcessedMessagesParams, Messenger_GetProcessedMessagesServer) error
 	mustEmbedUnimplementedMessengerServer()
 }
 
@@ -98,7 +98,7 @@ type UnimplementedMessengerServer struct {
 func (UnimplementedMessengerServer) ProcessMessage(context.Context, *Message) (*MessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProcessMessage not implemented")
 }
-func (UnimplementedMessengerServer) GetProcessedMessages(*User, Messenger_GetProcessedMessagesServer) error {
+func (UnimplementedMessengerServer) GetProcessedMessages(*GetProcessedMessagesParams, Messenger_GetProcessedMessagesServer) error {
 	return status.Errorf(codes.Unimplemented, "method GetProcessedMessages not implemented")
 }
 func (UnimplementedMessengerServer) mustEmbedUnimplementedMessengerServer() {}
@@ -133,7 +133,7 @@ func _Messenger_ProcessMessage_Handler(srv interface{}, ctx context.Context, dec
 }
 
 func _Messenger_GetProcessedMessages_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(User)
+	m := new(GetProcessedMessagesParams)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}

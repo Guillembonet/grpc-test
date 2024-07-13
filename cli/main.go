@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
 	"gihub.com/guillembonet/grpc-test/message"
@@ -17,7 +16,7 @@ import (
 )
 
 const (
-	userIdFlag = "user-id"
+	noteFlag = "note"
 )
 
 var rootCmd = cobra.Command{
@@ -35,7 +34,7 @@ func main() {
 func init() {
 	rootCmd.AddCommand(processMessageCmd, getProcessedMessagedCmd)
 
-	processMessageCmd.Flags().Int64P(userIdFlag, "u", 1, "user ID")
+	processMessageCmd.Flags().StringP(noteFlag, "n", "", "note to attach to the message")
 }
 
 func initClient() (message.MessengerClient, *grpc.ClientConn, error) {
@@ -53,9 +52,9 @@ var processMessageCmd = &cobra.Command{
 	Short:   "process-message - sends a message for processing to a gRPC server",
 	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		userId, err := cmd.Flags().GetInt64(userIdFlag)
+		note, err := cmd.Flags().GetString(noteFlag)
 		if err != nil {
-			slog.Error("error getting user ID flag", slog.Any("err", err))
+			slog.Error("error getting flag", slog.String("flag_name", noteFlag), slog.Any("err", err))
 			os.Exit(1)
 		}
 
@@ -67,8 +66,8 @@ var processMessageCmd = &cobra.Command{
 		defer conn.Close()
 
 		msg := &message.Message{
-			UserId:  userId,
 			Message: args[0],
+			Note:    note,
 		}
 		resp, err := client.ProcessMessage(context.Background(), msg)
 		if err != nil {
@@ -84,7 +83,6 @@ var getProcessedMessagedCmd = &cobra.Command{
 	Use:     "get-processed-messages",
 	Aliases: []string{"gpm"},
 	Short:   "get-processed-messages - get processed messages from a gRPC server",
-	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		client, conn, err := initClient()
 		if err != nil {
@@ -93,18 +91,7 @@ var getProcessedMessagedCmd = &cobra.Command{
 		}
 		defer conn.Close()
 
-		userIdString := args[0]
-		userId, err := strconv.ParseInt(userIdString, 10, 64)
-		if err != nil {
-			slog.Error("error parsing user ID", slog.Any("err", err))
-			os.Exit(1)
-		}
-
-		msg := &message.User{
-			UserId: userId,
-		}
-
-		resp, err := client.GetProcessedMessages(context.Background(), msg)
+		resp, err := client.GetProcessedMessages(context.Background(), nil)
 		if err != nil {
 			slog.Error("error sending message", slog.Any("err", err))
 			os.Exit(1)
@@ -131,7 +118,7 @@ var getProcessedMessagedCmd = &cobra.Command{
 
 				slog.Info("received message",
 					slog.String("message", msg.GetMessage()),
-					slog.Int("user_id", int(msg.GetUserId())),
+					slog.String("note", msg.GetNote()),
 					slog.String("base64_message", msg.GetBase64Message()))
 			}
 		}()

@@ -25,9 +25,9 @@ func NewServer(rabbitMqClient *rabbitmq.Client) *Server {
 var _ message.MessengerServer = &Server{}
 
 func (s *Server) ProcessMessage(ctx context.Context, msg *message.Message) (*message.MessageResponse, error) {
-	slog.Info("received message", slog.String("message", msg.GetMessage()), slog.Int("user_id", int(msg.GetUserId())))
+	slog.Info("received message", slog.String("message", msg.GetMessage()), slog.String("note", msg.GetNote()))
 
-	err := s.rabbitMqClient.PushMessage(msg.GetUserId(), msg.GetMessage())
+	err := s.rabbitMqClient.PushMessage(msg)
 	if err != nil {
 		slog.Error("error pushing message", slog.Any("err", err))
 		return &message.MessageResponse{
@@ -40,25 +40,27 @@ func (s *Server) ProcessMessage(ctx context.Context, msg *message.Message) (*mes
 	}, nil
 }
 
-func (s *Server) GetProcessedMessages(user *message.User, server message.Messenger_GetProcessedMessagesServer) error {
+func (s *Server) GetProcessedMessages(_ *message.GetProcessedMessagesParams, server message.Messenger_GetProcessedMessagesServer) error {
 	msgs, err := s.rabbitMqClient.ConsumeMessages(server.Context())
 	if err != nil {
 		return fmt.Errorf("error consuming messages: %w", err)
 	}
 
 	for msg := range msgs {
-		if msg.UserId != user.GetUserId() {
-			err = msg.Reject()
+		if msg.Message == nil {
+			slog.Debug("received nil message, acknowledging")
+			err = msg.Ack()
 			if err != nil {
-				return fmt.Errorf("error rejecting message from other user: %w", err)
+				return fmt.Errorf("error acknowledging empty message: %w", err)
 			}
 			continue
 		}
 
-		base64Message := base64.StdEncoding.EncodeToString([]byte(msg.Msg))
+		msgString := msg.Message.GetMessage()
+		base64Message := base64.StdEncoding.EncodeToString([]byte(msgString))
 		err = server.Send(&message.ProcessedMessage{
-			UserId:        msg.UserId,
-			Message:       msg.Msg,
+			Message:       msgString,
+			Note:          msg.Message.GetNote(),
 			Base64Message: base64Message,
 		})
 		if err != nil {
