@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gihub.com/guillembonet/grpc-test/message"
+	"gihub.com/guillembonet/grpc-test/nats"
 	"gihub.com/guillembonet/grpc-test/rabbitmq"
 	"gihub.com/guillembonet/grpc-test/server"
 	"google.golang.org/grpc"
@@ -19,13 +20,15 @@ import (
 
 var (
 	rabbitMqUrlFlag      = flag.String("rabbitmq-url", "amqp://guest:guest@localhost:5672/", "RabbitMQ URL")
+	natsUrlFlag          = flag.String("nats-url", "nats://localhost:4222", "NATS URL")
 	tcpListenAddressFlag = flag.String("tcp-listen-address", "localhost:8080", "TCP listen address")
 )
 
 func main() {
 	flag.Parse()
 
-	if rabbitMqUrlFlag == nil || tcpListenAddressFlag == nil || *rabbitMqUrlFlag == "" || *tcpListenAddressFlag == "" {
+	if rabbitMqUrlFlag == nil || tcpListenAddressFlag == nil || natsUrlFlag == nil ||
+		*rabbitMqUrlFlag == "" || *tcpListenAddressFlag == "" || *natsUrlFlag == "" {
 		slog.Error("missing required flags")
 		os.Exit(1)
 	}
@@ -42,7 +45,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	server := server.NewServer(rabbitMqClient)
+	natsClient, err := nats.NewClient(*natsUrlFlag)
+	if err != nil {
+		slog.Error("error creating nats client", slog.Any("err", err))
+		os.Exit(1)
+	}
+
+	server := server.NewServer(rabbitMqClient, natsClient)
 	grpcServer := grpc.NewServer()
 
 	message.RegisterMessengerServer(grpcServer, server)

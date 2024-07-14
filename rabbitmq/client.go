@@ -56,11 +56,13 @@ func (c *Client) PushMessage(msg *message.Message) error {
 	return nil
 }
 
+// Message represents a message consumed from the queue.
 type Message struct {
-	Message  *message.Message
+	Data     *message.Message
 	delivery amqp091.Delivery
 }
 
+// Ack acknowledges the message.
 func (m *Message) Ack() error {
 	if err := m.delivery.Ack(false); err != nil {
 		return fmt.Errorf("error acknowledging message: %w", err)
@@ -69,6 +71,7 @@ func (m *Message) Ack() error {
 	return nil
 }
 
+// Reject rejects the message and requeues it.
 func (m *Message) Reject() error {
 	if err := m.delivery.Reject(true); err != nil {
 		return fmt.Errorf("error rejecting message: %w", err)
@@ -79,6 +82,7 @@ func (m *Message) Reject() error {
 
 // ConsumeMessages consumes messages from the queue and returns a channel for the client to consume.
 // The context is expected to expire when the client is done consuming messages so the channel can be closed.
+// When the context expires, messages will fail to be acknowledged or rejected.
 func (c *Client) ConsumeMessages(ctx context.Context) (<-chan Message, error) {
 	channel, err := c.conn.Channel()
 	if err != nil {
@@ -113,7 +117,7 @@ func (c *Client) ConsumeMessages(ctx context.Context) (<-chan Message, error) {
 
 				msg := Message{
 					delivery: d,
-					Message:  pbMsg,
+					Data:     pbMsg,
 				}
 
 				select {

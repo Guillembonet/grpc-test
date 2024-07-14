@@ -7,18 +7,21 @@ import (
 	"log/slog"
 
 	"gihub.com/guillembonet/grpc-test/message"
+	"gihub.com/guillembonet/grpc-test/nats"
 	"gihub.com/guillembonet/grpc-test/rabbitmq"
 )
 
 type Server struct {
 	rabbitMqClient *rabbitmq.Client
+	natsClient     *nats.Client
 
 	message.UnimplementedMessengerServer
 }
 
-func NewServer(rabbitMqClient *rabbitmq.Client) *Server {
+func NewServer(rabbitMqClient *rabbitmq.Client, natsClient *nats.Client) *Server {
 	return &Server{
 		rabbitMqClient: rabbitMqClient,
+		natsClient:     natsClient,
 	}
 }
 
@@ -29,7 +32,15 @@ func (s *Server) ProcessMessage(ctx context.Context, msg *message.Message) (*mes
 
 	err := s.rabbitMqClient.PushMessage(msg)
 	if err != nil {
-		slog.Error("error pushing message", slog.Any("err", err))
+		slog.Error("error pushing message to rabbitmq", slog.Any("err", err))
+		return &message.MessageResponse{
+			Status: message.Status_ERROR,
+		}, nil
+	}
+
+	err = s.natsClient.PublishMessage("messages", msg)
+	if err != nil {
+		slog.Error("error publishing message to nats", slog.Any("err", err))
 		return &message.MessageResponse{
 			Status: message.Status_ERROR,
 		}, nil
@@ -47,7 +58,7 @@ func (s *Server) GetProcessedMessages(_ *message.GetProcessedMessagesParams, ser
 	}
 
 	for msg := range msgs {
-		if msg.Message == nil {
+		if msg.Data == nil {
 			slog.Debug("received nil message, acknowledging")
 			err = msg.Ack()
 			if err != nil {
@@ -56,11 +67,11 @@ func (s *Server) GetProcessedMessages(_ *message.GetProcessedMessagesParams, ser
 			continue
 		}
 
-		msgString := msg.Message.GetMessage()
+		msgString := msg.Data.GetMessage()
 		base64Message := base64.StdEncoding.EncodeToString([]byte(msgString))
 		err = server.Send(&message.ProcessedMessage{
 			Message:       msgString,
-			Note:          msg.Message.GetNote(),
+			Note:          msg.Data.GetNote(),
 			Base64Message: base64Message,
 		})
 		if err != nil {

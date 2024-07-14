@@ -6,3 +6,9 @@ services:
     ports:
       - 5672:5672
       - 15672:15672
+
+  nats:
+    image: nats:2.10.17-alpine3.20
+    container_name: "nats"
+    ports:
+      - 4222:4222

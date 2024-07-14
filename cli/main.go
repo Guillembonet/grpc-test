@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"gihub.com/guillembonet/grpc-test/message"
+	"gihub.com/guillembonet/grpc-test/nats"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -32,18 +33,27 @@ func main() {
 }
 
 func init() {
-	rootCmd.AddCommand(processMessageCmd, getProcessedMessagedCmd)
+	rootCmd.AddCommand(processMessageCmd, getProcessedMessagedCmd, subscribeToNatsCmd)
 
 	processMessageCmd.Flags().StringP(noteFlag, "n", "", "note to attach to the message")
 }
 
-func initClient() (message.MessengerClient, *grpc.ClientConn, error) {
+func initGrpcClient() (message.MessengerClient, *grpc.ClientConn, error) {
 	conn, err := grpc.NewClient("localhost:8080", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating client: %w", err)
 	}
 
 	return message.NewMessengerClient(conn), conn, nil
+}
+
+func initNatsClient() (*nats.Client, error) {
+	conn, err := nats.NewClient("nats://localhost:4222")
+	if err != nil {
+		return nil, fmt.Errorf("error creating client: %w", err)
+	}
+
+	return conn, nil
 }
 
 var processMessageCmd = &cobra.Command{
@@ -58,7 +68,7 @@ var processMessageCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		client, conn, err := initClient()
+		client, conn, err := initGrpcClient()
 		if err != nil {
 			slog.Error("error initializing client", slog.Any("err", err))
 			os.Exit(1)
@@ -84,7 +94,7 @@ var getProcessedMessagedCmd = &cobra.Command{
 	Aliases: []string{"gpm"},
 	Short:   "get-processed-messages - get processed messages from a gRPC server",
 	Run: func(cmd *cobra.Command, args []string) {
-		client, conn, err := initClient()
+		client, conn, err := initGrpcClient()
 		if err != nil {
 			slog.Error("error initializing client", slog.Any("err", err))
 			os.Exit(1)
@@ -128,6 +138,60 @@ var getProcessedMessagedCmd = &cobra.Command{
 			slog.Info("stopping gracefully")
 		case <-stopped:
 			slog.Info("done receiving processed messages")
+		}
+	},
+}
+
+var subscribeToNatsCmd = &cobra.Command{
+	Use:     "subscribe-to-nats",
+	Aliases: []string{"stn"},
+	Short:   "subscribe-to-nats - subscribes to a NATS subject which returns messages",
+	Args:    cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		natsClient, err := initNatsClient()
+		if err != nil {
+			slog.Error("error initializing client", slog.Any("err", err))
+			os.Exit(1)
+		}
+		defer natsClient.Close()
+
+		msgs, err := natsClient.Subscribe(cmd.Context(), args[0])
+		if err != nil {
+			slog.Error("error subscribing to subject", slog.Any("err", err))
+			os.Exit(1)
+		}
+
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+		stopped := make(chan struct{})
+		go func() {
+			defer close(stopped)
+
+			for {
+				select {
+				case <-sigChan:
+					slog.Info("stopping gracefully")
+					return
+				case msg, ok := <-msgs:
+					if !ok {
+						return
+					}
+
+					slog.Info("received message",
+						slog.String("message", msg.Data.GetMessage()),
+						slog.String("note", msg.Data.GetNote()))
+				}
+			}
+		}()
+
+		slog.Info("subscribed to subject", slog.String("subject", args[0]))
+
+		select {
+		case <-sigChan:
+			slog.Info("stopping gracefully")
+		case <-stopped:
+			slog.Info("done receiving messages")
 		}
 	},
 }
